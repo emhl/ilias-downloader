@@ -115,7 +115,7 @@ do_grep() {
 }
 
 ilias_request() {
-	curl -s -L -b "$COOKIE_PATH" -c "$COOKIE_PATH" $2 "$ILIAS_URL$1"
+	curl -s -k -L -b "$COOKIE_PATH" -c "$COOKIE_PATH" $2 "$ILIAS_URL$1"
 }
 
 do_login() {
@@ -170,12 +170,11 @@ function fetch_exc {
 
 	echo "Fetching exc $1 to $2"
 
-	local CONTENT_PAGE=`ilias_request "goto_${ILIAS_PREFIX}_exc_$1.html"`
+	local CONTENT_PAGE=`ilias_request "ilias.php?baseClass=ilrepositorygui&ref_id=$1"`
 
 	# Fetch all Download Buttons from this page
 	local ITEMS=`echo "$CONTENT_PAGE" | do_grep "<a href=\"\K[^\"]*(?=\">$ILIAS_EXC_BUTTON_DESC)" | sed -e 's/\&amp\;/\&/g'` 
-    
-    for file in $ITEMS ; do
+	for file in $ITEMS ; do
 		local DO_DOWNLOAD=1
         local FILENAME=`echo $file | do_grep "&file=\K(?=&)"`
         local ECHO_MESSAGE="[$EXC_FOLDER_PREFIX$1] Check file $FILENAME ..."
@@ -232,22 +231,17 @@ function fetch_folder {
 	echo "Fetching folder $1 to $2"
 
 	echo "$1" | do_grep "^[0-9]*$" > /dev/null
-	if [ $? -eq 0 ] ; then
-		local CONTENT_PAGE=`ilias_request "goto_${ILIAS_PREFIX}_fold_$1.html"`
-	else
-		local CONTENT_PAGE=`ilias_request "goto_${ILIAS_PREFIX}_$1.html"`
-	fi
+	local CONTENT_PAGE=`ilias_request "ilias.php?baseClass=ilrepositorygui&ref_id=$1"`
     
 	# Fetch Subfolders recursive (async) 
-	local ITEMS=`echo "$CONTENT_PAGE" | do_grep "<h[34] class=\"il_ContainerItemTitle\"><a href=\"${ILIAS_URL}\Kgoto_${ILIAS_PREFIX}_fold_[0-9]*.html"`
-	
+	local ITEMS=`echo "$CONTENT_PAGE" | do_grep "<h[34] class=\"il_ContainerItemTitle\"><a href=\"\Kilias\.php\?baseClass.*ref_id=[0-9]*"`
 	for folder in $ITEMS ; do
-		local FOLDER_NAME=`echo "$CONTENT_PAGE" | do_grep "<h[34] class=\"il_ContainerItemTitle\"><a href=\"${ILIAS_URL}${folder}\"[^>]*>\K[^<]*"`
+		local FOLD_NUM=`echo "$folder" | do_grep "ref_id=\K[0-9]*"`
+		local FOLDER_NAME=`echo "$CONTENT_PAGE" | do_grep "ref_id=${FOLD_NUM}\"[^>]*>\K[^<]*"`
 		
 		# Replace / character
 		local FOLDER_NAME=`echo "${FOLDER_NAME//\//-}" | head -1`
 		echo "Entering folder $FOLDER_NAME"
-		local FOLD_NUM=`echo "$folder" | do_grep "fold_\K[0-9]*"`
 		if [ ! -e "$2/$FOLDER_NAME" ] ; then
 			mkdir "$2/$FOLDER_NAME"
 		fi
@@ -255,9 +249,8 @@ function fetch_folder {
 	done
     
     
-	# Files
-	local ITEMS=`echo $CONTENT_PAGE | do_grep "<h[34] class=\"il_ContainerItemTitle\"><a href=\"${ILIAS_URL}\Kgoto_${ILIAS_PREFIX}_file_[0-9]*_download.html"`
-	
+	# Filesi
+	local ITEMS=`echo $CONTENT_PAGE | do_grep "<h[34] class=\"il_ContainerItemTitle\"><a href=\"${ILIAS_URL}\Kgoto\.php\?target=file_[0-9]*_download"`
 	for file in $ITEMS ; do
 		local DO_DOWNLOAD=1
 		local NUMBER=`echo "$file" | do_grep "[0-9]*"`
@@ -265,10 +258,10 @@ function fetch_folder {
         
         # find the box around the file we are processing.
 		local ITEM=`echo $CONTENT_PAGE | do_grep "<h[34] class=\"il_ContainerItemTitle\"><a href=\"${ILIAS_URL}${file}.*<div style=\"clear:both;\"></div>"`
-        # extract version information from file. (Might be empty)
-        local VERSION=`echo "$ITEM" | grep -o -P '(?<=<span class=\"il_ItemProperty\"> Version: ).*?(?=&nbsp;&nbsp;</span>.*)'`
+	# extract version information from file. (Might be empty)
+		local VERSION=`echo "$ITEM" | grep -o -P '(?<=<span class=\"il_ItemProperty\"> Version: ).*?(?=&nbsp;&nbsp;</span>.*)'`
         # build fileId
-        local FILEID=`echo "$file $VERSION" | xargs`
+		local FILEID=`echo "$file $VERSION" | xargs`
         
 		echo "$HISTORY_CONTENT" | grep "$FILEID" > /dev/null
 		if [ $? -eq 0 ] ; then
